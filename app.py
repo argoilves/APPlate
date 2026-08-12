@@ -51,26 +51,20 @@ pilt = None
 # then upload the downloaded image below using "Või lae pilt üles".
 import streamlit.components.v1 as components
 
-# Autocapture options
-auto = st.checkbox("Autocapture (pildistab automaatselt)", value=False)
-delay = st.number_input("Autocapture viive sekundites", min_value=1, max_value=10, value=2)
-
 html = """
 <div style="text-align:center">
   <video id="video" autoplay playsinline style="width:100%;height:auto;border-radius:8px"></video>
   <div style="position:relative;width:100%;display:flex;justify-content:center;margin-top:8px;">
     <div id="overlay" style="width:80%;aspect-ratio:4/1;border:3px solid rgba(76,175,80,0.9);border-radius:6px;pointer-events:none;position:absolute"></div>
   </div>
-  <div style="margin-top:8px">
-    <button id="capture" style="padding:8px 16px;background:#4CAF50;border:none;color:white;border-radius:6px">Capture</button>
-    <button id="stop" style="padding:8px 12px;margin-left:8px;border-radius:6px">Stop</button>
+  <div style="margin-top:12px">
+    <button id="capture" style="padding:12px 20px;background:#2196F3;border:none;color:white;border-radius:8px;font-size:16px">Pildista</button>
   </div>
-  <div id="msg" style="margin-top:8px;color:#666;font-size:13px">Aseta numbrimärk rohelise raamiga ja vajuta "Capture".</div>
+  <div id="msg" style="margin-top:8px;color:#666;font-size:13px">Aseta numbrimärk rohelise raamiga ja vajuta "Pildista".</div>
 </div>
 <script>
 const video = document.getElementById('video');
 const captureBtn = document.getElementById('capture');
-const stopBtn = document.getElementById('stop');
 let stream=null;
 async function start(){
   try{
@@ -104,12 +98,8 @@ async function doCapture(){
 }
 
 captureBtn.onclick = doCapture;
-stopBtn.onclick = ()=>{ if(stream){ stream.getTracks().forEach(t=>t.stop()); video.srcObject=null; document.getElementById('msg').innerText='Kaamera peatatud.' } }
-
-const auto = %s;
-if(auto){ setTimeout(()=>{ doCapture(); }, %d); }
 </script>
-""" % ("true" if auto else "false", int(delay*1000))
+"""
 
 result = components.html(html, height=520)
 
