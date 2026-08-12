@@ -63,7 +63,71 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-pilt = st.camera_input("Tee numbrimärgist pilt")
+pilt = None
+
+# Custom in-page camera with overlay (uses getUserMedia). Captured image is automatically downloaded;
+# then upload the downloaded image below using "Või lae pilt üles".
+import streamlit.components.v1 as components
+
+components.html(
+        """
+        <div style="text-align:center">
+            <video id="video" autoplay playsinline style="max-width:100%;border-radius:8px"></video>
+            <div style="position:relative;width:100%;display:flex;justify-content:center;margin-top:8px;">
+                <div id="overlay" style="width:80%;aspect-ratio:4/1;border:3px dashed #4CAF50;border-radius:6px;box-shadow:0 0 0 1000px rgba(0,0,0,0.25) inset;pointer-events:none"></div>
+            </div>
+            <div style="margin-top:8px">
+                <button id="capture" style="padding:8px 16px;background:#4CAF50;border:none;color:white;border-radius:6px">Capture</button>
+                <button id="stop" style="padding:8px 12px;margin-left:8px;border-radius:6px">Stop</button>
+            </div>
+            <div id="msg" style="margin-top:8px;color:#666;font-size:13px">Aseta numbrimärk rohelise kasti ja vajuta "Capture". Pilt salvestatakse seadmesse.</div>
+        </div>
+        <script>
+        const video = document.getElementById('video');
+        const captureBtn = document.getElementById('capture');
+        const stopBtn = document.getElementById('stop');
+        let stream=null;
+        async function start(){
+            try{
+                stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+                video.srcObject = stream;
+            }catch(e){
+                document.getElementById('msg').innerText = 'Kaamera ei ole kättesaadav. Kasuta üleslaadimist.';
+            }
+        }
+        start();
+        captureBtn.onclick = async ()=>{
+            const canvas = document.createElement('canvas');
+            const w = video.videoWidth;
+            const h = video.videoHeight;
+            // Calculate crop to center with plate-like aspect ratio (4:1) based on smaller dimension
+            const targetRatio = 4/1;
+            let cw = w, ch = Math.round(w/targetRatio);
+            if(ch > h){ ch = h; cw = Math.round(h*targetRatio); }
+            const sx = Math.round((w - cw)/2);
+            const sy = Math.round((h - ch)/2);
+            canvas.width = cw; canvas.height = ch;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, sx, sy, cw, ch, 0, 0, cw, ch);
+            canvas.toBlob(function(blob){
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'capture.png';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                document.getElementById('msg').innerText = 'Pilt salvestatud. Palun lae see nüüd üles all oleva nupu abil.';
+            }, 'image/png');
+        };
+        stopBtn.onclick = ()=>{ if(stream){ stream.getTracks().forEach(t=>t.stop()); video.srcObject=null; document.getElementById('msg').innerText='Kaamera peatatud.' } }
+        </script>
+        """,
+        height=520,
+)
+
+pilt = st.camera_input("(Valikuline) Tee numbrimärgist pilt (brauseri kaamerast)")
 if not pilt:
     pilt = st.file_uploader("Või lae pilt üles", type=["png", "jpg", "jpeg"])
 
