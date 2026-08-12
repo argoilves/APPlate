@@ -43,7 +43,7 @@ st.info("Kui kaamera ei avane, lae numbrimärgist pilt üles.")
 picture = st.camera_input("Pildista numbrimärk")
 
 if picture is not None:
-    st.image(picture, caption='Saadud pilt', use_column_width=True)
+    st.image(picture, caption='Saadud pilt', use_container_width=True)
     
     # Dekodeeri ja töötlusta
     img = Image.open(picture)
