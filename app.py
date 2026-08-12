@@ -52,8 +52,8 @@ pilt = None
 import streamlit.components.v1 as components
 
 html = """
-<div style="text-align:center">
-  <video id="video" autoplay playsinline style="width:100vw;height:33vh;border-radius:8px;display:block;margin:0 auto;"></video>
+<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;margin:0;padding:0;">
+  <video id="video" autoplay playsinline style="width:100%;height:auto;max-height:33vh;border:none;display:block;"></video>
   <div style="margin-top:12px">
     <button id="capture" style="padding:12px 24px;background:#2196F3;border:none;color:white;border-radius:8px;font-size:18px">Pildista</button>
   </div>
@@ -102,6 +102,8 @@ result = components.html(html, height=520)
 
 # Normalize the returned value from the component
 raw = result
+st.write("DEBUG: result type =", type(raw), "value starts with =", str(raw)[:80] if raw else "None")
+
 if isinstance(raw, (list, tuple)) and len(raw) > 0:
     raw = raw[0]
 if isinstance(raw, dict):
@@ -113,9 +115,12 @@ if isinstance(raw, bytes):
         raw = str(raw)
 
 data_url = None
-if isinstance(raw, str) and 'data:image' in raw:
-    idx = raw.find('data:image')
-    data_url = raw[idx:]
+raw_str = str(raw) if raw is not None else ""
+st.write("DEBUG: after normalization, raw_str starts with =", raw_str[:80] if raw_str else "empty")
+
+if 'data:image' in raw_str:
+    idx = raw_str.find('data:image')
+    data_url = raw_str[idx:]
 
 if data_url:
     st.info('Pilt vastu võetud, töötlen...')
