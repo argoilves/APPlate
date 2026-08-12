@@ -53,14 +53,11 @@ import streamlit.components.v1 as components
 
 html = """
 <div style="text-align:center">
-  <div style="height:33vh;width:100%;max-width:420px;margin:0 auto;position:relative;">
-    <video id="video" autoplay playsinline style="height:100%;width:auto;max-width:100%;display:block;border-radius:8px;margin:0 auto;"></video>
-    <div id="overlay" style="width:80%;aspect-ratio:4/1;border:3px solid rgba(76,175,80,0.9);border-radius:6px;pointer-events:none;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);"></div>
-  </div>
+  <video id="video" autoplay playsinline style="width:100vw;height:33vh;border-radius:8px;display:block;margin:0 auto;"></video>
   <div style="margin-top:12px">
-    <button id="capture" style="padding:12px 20px;background:#2196F3;border:none;color:white;border-radius:8px;font-size:16px">Pildista</button>
+    <button id="capture" style="padding:12px 24px;background:#2196F3;border:none;color:white;border-radius:8px;font-size:18px">Pildista</button>
   </div>
-  <div id="msg" style="margin-top:8px;color:#666;font-size:13px">Aseta numbrimärk rohelise raamiga ja vajuta "Pildista".</div>
+  <div id="msg" style="margin-top:8px;color:#666;font-size:13px">Aseta numbrimärk raami sisse ja vajuta "Pildista".</div>
 </div>
 <script>
 const video = document.getElementById('video');
@@ -103,64 +100,58 @@ captureBtn.onclick = doCapture;
 
 result = components.html(html, height=520)
 
-if result:
-  raw = result
-  # Normalize common wrappers
-  if isinstance(raw, (list, tuple)) and len(raw) > 0:
+# Normalize the returned value from the component
+raw = result
+if isinstance(raw, (list, tuple)) and len(raw) > 0:
     raw = raw[0]
-  if isinstance(raw, dict):
-    # Some Streamlit versions/components may wrap value in a dict
+if isinstance(raw, dict):
     raw = raw.get('value', raw)
-  if isinstance(raw, bytes):
+if isinstance(raw, bytes):
     try:
-      raw = raw.decode('utf-8')
+        raw = raw.decode('utf-8')
     except Exception:
-      raw = str(raw)
+        raw = str(raw)
 
-  raw_str = str(raw)
-  if 'data:image' in raw_str:
-    # extract data URL from any surrounding text
-    idx = raw_str.find('data:image')
-    data_url = raw_str[idx:]
-    if data_url.startswith('data:image'):
-      try:
-        header, b64 = data_url.split(',', 1)
-      except ValueError:
-        st.error('Saadi ootamatu kujul pildidata. Proovi uuesti.')
-        data_url = None
-    else:
-      data_url = None
-  else:
-    data_url = None
+data_url = None
+if isinstance(raw, str) and 'data:image' in raw:
+    idx = raw.find('data:image')
+    data_url = raw[idx:]
 
-  if data_url:
-    data = base64.b64decode(b64)
-    size = len(data)
-    max_bytes = 2 * 1024 * 1024  # 2 MB
+if data_url:
+    st.info('Pilt vastu võetud, töötlen...')
+    with st.spinner('Töötlen pilti...'):
+        try:
+            header, b64 = data_url.split(',', 1)
+            data = base64.b64decode(b64)
+        except Exception:
+            st.error('Pildi dekodeerimine ebaõnnestus. Proovi uuesti.')
+            data = None
 
-    if size > max_bytes:
-      st.error(f"Pilt liiga suur ({size/1024:.0f} KB). Maksimaalne lubatud suurus on 2 MB.")
-    else:
-      try:
-        pilt = io.BytesIO(data)
-        img = Image.open(pilt)
-        st.image(img, caption='Pilt, mis saadeti kaamerast', use_column_width=True)
-        tulemus = lugeja.readtext(np.array(img), detail=0)
-        tuvastatud = "".join(tulemus).replace(" ", "").upper()
-
-        st.write("Tuvastati:", tuvastatud)
-
-        if any(nr in tuvastatud for nr in lubatud):
-          st.success("LUBA OLEMAS")
-        else:
-          st.error("LUBA PUUDUB")
-      finally:
-        for name in ('data', 'img', 'tulemus', 'tuvastatud'):
-          try:
-            del locals()[name]
-          except Exception:
-            pass
-        pilt = None
-        gc.collect()
-  else:
+        if data is not None:
+            size = len(data)
+            max_bytes = 2 * 1024 * 1024  # 2 MB
+            if size > max_bytes:
+                st.error(f"Pilt liiga suur ({size/1024:.0f} KB). Maksimaalne lubatud suurus on 2 MB.")
+            else:
+                try:
+                    pilt = io.BytesIO(data)
+                    img = Image.open(pilt)
+                    st.image(img, caption='Pilt, mis saadeti kaamerast', use_column_width=True)
+                    tulemus = lugeja.readtext(np.array(img), detail=0)
+                    tuvastatud = "".join(tulemus).replace(" ", "").upper()
+                    st.write("Tuvastati:", tuvastatud)
+                    if any(nr in tuvastatud for nr in lubatud):
+                        st.success("LUBA OLEMAS")
+                    else:
+                        st.error("LUBA PUUDUB")
+                except Exception as e:
+                    st.error(f'Ootamatu viga töötlemisel: {e}')
+                finally:
+                    for name in ('pilt', 'data', 'img', 'tulemus', 'tuvastatud'):
+                        try:
+                            del locals()[name]
+                        except Exception:
+                            pass
+                    gc.collect()
+else:
     st.warning('Saadi ootamatu tulemus kaamerast; proovi uuesti.')
