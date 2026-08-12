@@ -41,28 +41,9 @@ lubatud = [
 st.title("Reg nr kontroll")
 st.info("Kui kaamera ei avane, lae numbrimärgist pilt üles.")
 
-# Visuaalne juhend: pikk ristkülik, mis aitab numbrimärgi joondada
-st.markdown(
-    """
-    <style>
-    .plate-guide {display:flex;justify-content:center;margin-bottom:8px;}
-    .plate-box {
-      width:80%;
-      aspect-ratio:4/1;
-      border:3px dashed #4CAF50;
-      border-radius:6px;
-      box-shadow: 0 0 0 1000px rgba(0,0,0,0.25) inset;
-      background: rgba(0,0,0,0.0);
-    }
-    .guide-text {text-align:center;color:#666;font-size:14px;margin-bottom:10px;}
-    @media(max-width:600px){ .plate-box{width:94%;} }
-    </style>
-    <div class="guide-text">Aseta numbrimärk rohelise raamiga kasti. Hoia kaugust ~1–2 m, ära liigu liiga lähedale.</div>
-    <div class="plate-guide"><div class="plate-box"></div></div>
-    """,
-    unsafe_allow_html=True,
-)
+# Näitame ainult ühte kaamera vaadet (allpool) — palun kasuta seda raamiga joondamiseks.
 
+# Muutujad
 pilt = None
 
 # Custom in-page camera with overlay (uses getUserMedia). Captured image is automatically downloaded;
@@ -127,9 +108,8 @@ components.html(
         height=520,
 )
 
-pilt = st.camera_input("(Valikuline) Tee numbrimärgist pilt (brauseri kaamerast)")
-if not pilt:
-    pilt = st.file_uploader("Või lae pilt üles", type=["png", "jpg", "jpeg"])
+# Faili üleslaadimine pildi töötlemiseks (pärast Capture'i salvestamist valige all laetud pilt)
+pilt = st.file_uploader("Laadi salvestatud pilt üles kontrolliks", type=["png", "jpg", "jpeg"]) 
 
 if pilt:
     # Loe pildi baitid (sobib nii camera_input kui file_uploader puhul)
