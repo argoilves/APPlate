@@ -9,31 +9,31 @@ def lae_mudel():
     return easyocr.Reader(['en', 'uk'])
 
 lugeja = lae_mudel()
-# Enamus on Eesti numbrimärgid, üks neist on Ukraina numbrimärk
+# Eesti numbrimärgid, sorteeritud numbri järgi. Ukraina märk lõpus.
 lubatud = [
-    "618JSR",
-    "219TNR",
-    "567DRA",
-    "217BVK",
+    "033XRL",
+    "042BMP",
     "070BMY",
-    "518BFX",
+    "120PLS",
+    "121VZW",
     "142BYG",
-    "803PGB",
+    "217BVK",
+    "219TNR",
+    "264DBK",
+    "398MGL",
     "403NDN",
     "507TKK",
+    "518BFX",
     "537DCF",
-    "936DCH",
-    "120PLS",
+    "567DRA",
+    "618JSR",
+    "687MBH",
+    "803PGB",
     "819MKE",
     "827HHL",
-    "042BMP",
-    "687MBH",
-    "398MGL",
-    "СВ0347СС",
-    "264DBK",
-    "033XRL",
     "912SDL",
-    "121VZW",
+    "936DCH",
+    "СВ0347СС",
 ]
 
 st.title("Reg nr kontroll")
@@ -50,7 +50,7 @@ if picture is not None:
     
     with st.spinner('Töötlen pilti...'):
         tulemus = lugeja.readtext(np.array(img), detail=0)
-        tuvastatud = "".join(tulemus).replace(" ", "").upper()
+        tuvastatud = "".join(tulemus).replace(" ", "").upper().replace("EST", "").replace("UKR", "")
     
     st.write("Tuvastati:", tuvastatud)
     
