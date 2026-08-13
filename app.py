@@ -1,4 +1,3 @@
-import gc
 import re
 from io import BytesIO
 
@@ -184,9 +183,13 @@ if st.session_state.vaade == "kaamera":
         on_change=pilt_tehtud,
         args=(camera_key,),
         label_visibility="collapsed",
-        resolution="1080p",
+        resolution="480p",
         width="stretch",
     )
+
+    # Lae OCR-mudel samal ajal, kui kasutaja kaamerat sihib. Mudel jääb
+    # cache_resource abil järgmiste kontrollide jaoks serveri mällu.
+    lae_mudel()
 
 elif st.session_state.vaade == "tootlemine":
     st.title("Loen numbrit…", text_alignment="center")
@@ -197,7 +200,6 @@ elif st.session_state.vaade == "tootlemine":
         number = ""
     finally:
         st.session_state.pending_image = None
-        gc.collect()
 
     st.session_state.tuvastatud = number
     st.session_state.pop("number_input", None)
