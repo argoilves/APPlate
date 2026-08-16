@@ -19,6 +19,11 @@ st.html(
     """
     <style>
     @media (max-width: 700px) {
+        [data-testid="stMainBlockContainer"] {
+            padding-top: 3.5rem !important;
+            padding-bottom: calc(3rem + env(safe-area-inset-bottom, 0px)) !important;
+        }
+
         [data-testid="stAppViewContainer"] p,
         [data-testid="stDialog"] p {
             font-size: 1.05rem;
@@ -52,6 +57,10 @@ st.html(
             min-height: 3.6rem !important;
             font-size: 1.15rem !important;
             font-weight: 700 !important;
+        }
+
+        .st-key-kasitsi_submit {
+            margin-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
         }
 
         [data-testid="stAlert"] p {
