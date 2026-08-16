@@ -1,0 +1,8 @@
+[theme]
+baseFontSize = 18
+baseFontWeight = 500
+headingFontSizes = ["2.25rem", "1.75rem", "1.4rem", "1.2rem", "1.05rem", "1rem"]
+headingFontWeights = [700, 700, 700, 600, 600, 600]
+baseRadius = "12px"
+buttonRadius = "12px"
+showWidgetBorder = true
