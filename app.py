@@ -15,6 +15,60 @@ st.set_page_config(
     layout="wide",
 )
 
+st.html(
+    """
+    <style>
+    @media (max-width: 700px) {
+        [data-testid="stAppViewContainer"] p,
+        [data-testid="stDialog"] p {
+            font-size: 1.05rem;
+            line-height: 1.45;
+        }
+
+        [data-testid="stCaptionContainer"] p {
+            font-size: 1rem !important;
+            line-height: 1.4 !important;
+        }
+
+        .st-key-manual_number label p,
+        .st-key-number_input label p {
+            font-size: 1.1rem !important;
+            font-weight: 700 !important;
+        }
+
+        .st-key-manual_number input,
+        .st-key-number_input input {
+            min-height: 3.6rem !important;
+            font-size: 1.3rem !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .st-key-kasitsi_submit button,
+        .st-key-popup_submit button,
+        .st-key-popup_restart button {
+            width: 100% !important;
+            min-height: 3.6rem !important;
+            font-size: 1.15rem !important;
+            font-weight: 700 !important;
+        }
+
+        [data-testid="stAlert"] p {
+            font-size: 1.15rem !important;
+            font-weight: 700 !important;
+            line-height: 1.4 !important;
+        }
+
+        [data-testid="stDialog"] h2 {
+            font-size: 1.65rem !important;
+            font-weight: 750 !important;
+        }
+    }
+    </style>
+    """
+)
+
 
 TAGAKAAMERA = st.components.v2.component(
     "applate_tagakaamera",
@@ -85,7 +139,7 @@ TAGAKAAMERA = st.components.v2.component(
         color: white;
         text-align: center;
         background: rgba(0, 0, 0, 0.56);
-        font: 600 0.95rem/1.35 var(--st-font, sans-serif);
+        font: 700 1.15rem/1.4 var(--st-font, sans-serif);
     }
 
     #camera-status.ready {
@@ -101,7 +155,7 @@ TAGAKAAMERA = st.components.v2.component(
         display: flex;
         align-items: center;
         justify-content: center;
-        min-height: 82px;
+        min-height: 94px;
         padding: 8px 16px;
         background: linear-gradient(transparent, rgba(0, 0, 0, 0.72));
     }
@@ -109,7 +163,7 @@ TAGAKAAMERA = st.components.v2.component(
     button {
         appearance: none;
         border: 0;
-        font: 600 0.9rem/1 var(--st-font, sans-serif);
+        font: 700 1.05rem/1 var(--st-font, sans-serif);
         cursor: pointer;
         touch-action: manipulation;
     }
@@ -131,15 +185,15 @@ TAGAKAAMERA = st.components.v2.component(
     .shutter-ring {
         display: grid;
         place-items: center;
-        width: 52px;
-        height: 52px;
+        width: 58px;
+        height: 58px;
         border: 3px solid white;
         border-radius: 50%;
     }
 
     .shutter-dot {
-        width: 40px;
-        height: 40px;
+        width: 46px;
+        height: 46px;
         border-radius: 50%;
         background: white;
     }
@@ -147,14 +201,14 @@ TAGAKAAMERA = st.components.v2.component(
     #switch-camera {
         position: absolute;
         right: 18px;
-        bottom: 23px;
-        width: 44px;
-        height: 44px;
+        bottom: 25px;
+        width: 50px;
+        height: 50px;
         border: 1px solid rgba(255, 255, 255, 0.5);
         border-radius: 50%;
         color: white;
         background: rgba(0, 0, 0, 0.46);
-        font-size: 1.6rem;
+        font-size: 1.8rem;
     }
 
     @media (orientation: portrait) {
@@ -398,7 +452,7 @@ def tulemuse_popup():
     number = st.session_state.tuvastatud
 
     if number:
-        st.subheader(number, text_alignment="center")
+        st.title(number, text_alignment="center")
         if number in LUBATUD:
             st.success("LUBA ON OLEMAS", icon=":material/check_circle:")
         else:
@@ -409,7 +463,7 @@ def tulemuse_popup():
             icon=":material/edit:",
         )
 
-    st.caption("Vajadusel paranda numbrit ja kontrolli kohe uuesti.")
+    st.write("Vajadusel paranda numbrit ja kontrolli kohe uuesti.")
 
     with st.form("numbri_kontroll", border=False):
         muudetud_number = st.text_input(
@@ -420,12 +474,14 @@ def tulemuse_popup():
         )
         kontrolli = st.form_submit_button(
             "Kontrolli uuesti",
+            key="popup_submit",
             type="primary",
             icon=":material/search:",
             width="stretch",
         )
         uus = st.form_submit_button(
             "Alusta algusest",
+            key="popup_restart",
             icon=":material/photo_camera:",
             width="stretch",
         )
@@ -445,10 +501,8 @@ def tulemuse_popup():
 
 if st.session_state.vaade == "kaamera":
     st.title("Reg nr kontroll", text_alignment="center")
-    st.caption(
-        "Suuna kaamera numbrimärgile ja vajuta pildistamise nuppu.",
-        text_alignment="center",
-    )
+    with st.container(horizontal_alignment="center"):
+        st.write("Suuna kaamera numbrimärgile ja vajuta pildistamise nuppu.")
 
     camera_key = f"kaamera_{st.session_state.camera_id}"
     TAGAKAAMERA(
@@ -460,6 +514,35 @@ if st.session_state.vaade == "kaamera":
 
     if st.session_state.camera_error:
         st.error(st.session_state.camera_error, icon=":material/error:")
+
+    with st.form("kasitsi_kontroll", border=True):
+        st.subheader("Kontrolli käsitsi")
+        kasitsi_number = st.text_input(
+            "Registreerimisnumber",
+            key="manual_number",
+            max_chars=12,
+            placeholder="Näiteks 264DBK",
+            autocomplete="off",
+            icon=":material/license:",
+        )
+        kasitsi_submit = st.form_submit_button(
+            "Kontrolli",
+            key="kasitsi_submit",
+            type="primary",
+            icon=":material/search:",
+            width="stretch",
+        )
+
+    if kasitsi_submit:
+        puhastatud = puhasta_number(kasitsi_number)
+        if not puhastatud:
+            st.warning("Sisesta registrinumber.", icon=":material/warning:")
+        else:
+            st.session_state.tuvastatud = puhastatud
+            st.session_state.pop("number_input", None)
+            st.session_state.number_input = puhastatud
+            st.session_state.vaade = "tulemus"
+            st.rerun()
 
     # Lae OCR-mudel samal ajal, kui kasutaja kaamerat sihib. Mudel jääb
     # cache_resource abil järgmiste kontrollide jaoks serveri mällu.
