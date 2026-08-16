@@ -355,43 +355,9 @@ TAGAKAAMERA = st.components.v2.component(
     """,
 )
 
-# Eesti numbrimärgid, sorteeritud numbri järgi. Ukraina märk lõpus.
-LUBATUD = {
-        "618 JSR",
-        "219 TNR",
-        "567 DRA",
-        "217 BVK",
-        "070 BMY",
-        "518 BFX",
-        "142 BYG",
-        "803 PGB",
-        "403 NDN",
-        "507 TKK",
-        "537 DCF",
-        "936 DCH",
-        "120 PLS",
-        "819 MKE",
-        "827 HHL",
-        "042 BMP",
-        "687 MBH",
-        "398 MGL",
-        "СВ0347СС",
-        "264 DBK",
-        "033 XRL",
-        "912 SDL",
-        "121 VZW"
-}
-
-
-@st.cache_resource
-def lae_mudel():
-    return easyocr.Reader(["en", "uk"])
-
-
 def puhasta_number(value):
-    """Eemalda OCR-i lisatekst ja tagasta kõige tõenäolisem registrinumber."""
-    clean = re.sub(r"[^0-9A-ZА-ЯІЇЄ]", "", (value or "").upper())
-    clean = clean.replace("EST", "").replace("UKR", "")
+    """Normaliseeri loendi, OCR-i või käsitsi sisestatud registrinumber."""
+    clean = re.sub(r"[^0-9A-ZА-ЯІЇЄ]", "", str(value or "").upper())
 
     eesti_number = re.search(r"\d{3}[A-Z]{3}", clean)
     if eesti_number:
@@ -402,6 +368,41 @@ def puhasta_number(value):
         return ukraina_number.group(0)
 
     return clean[:12]
+
+
+# Siia võib numbrid kleepida tühikute, sidekriipsude või väiketähtedega.
+# Rakendus teeb nii loendi kui ka kasutaja/OCR-i tulemuse enne võrdlust ühesuguseks.
+LUBATUD_SISESTUS = {
+    "618 JSR",
+    "219 TNR",
+    "567 DRA",
+    "217 BVK",
+    "070 BMY",
+    "518 BFX",
+    "142 BYG",
+    "803 PGB",
+    "403 NDN",
+    "507 TKK",
+    "537 DCF",
+    "936 DCH",
+    "120 PLS",
+    "819 MKE",
+    "827 HHL",
+    "042 BMP",
+    "687 MBH",
+    "398 MGL",
+    "СВ0347СС",
+    "264 DBK",
+    "033 XRL",
+    "912 SDL",
+    "121 VZW",
+}
+LUBATUD = frozenset(map(puhasta_number, LUBATUD_SISESTUS))
+
+
+@st.cache_resource
+def lae_mudel():
+    return easyocr.Reader(["en", "uk"])
 
 
 def loe_number(image_bytes):
@@ -462,7 +463,7 @@ def tulemuse_popup():
 
     if number:
         st.title(number, text_alignment="center")
-        if number in LUBATUD:
+        if puhasta_number(number) in LUBATUD:
             st.success("LUBA ON OLEMAS", icon=":material/check_circle:")
         else:
             st.error("LUBA PUUDUB", icon=":material/cancel:")
