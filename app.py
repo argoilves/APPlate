@@ -2,6 +2,7 @@ import base64
 import binascii
 import re
 from io import BytesIO
+from uuid import uuid4
 
 import easyocr
 import numpy as np
@@ -355,6 +356,213 @@ TAGAKAAMERA = st.components.v2.component(
     """,
 )
 
+
+LOATA_AJALUGU = st.components.v2.component(
+    "applate_loata_ajalugu",
+    html="""
+    <section id="history-root" hidden>
+        <strong id="history-status"></strong>
+        <p id="history-count"></p>
+        <ul id="history-list"></ul>
+        <button id="history-download" type="button">Laadi ajalugu (.csv)</button>
+    </section>
+    """,
+    css="""
+    :host {
+        display: block;
+        color: var(--st-text-color);
+        font-family: var(--st-font);
+    }
+
+    #history-root {
+        margin: 0.35rem 0 1rem;
+        padding: 0.9rem;
+        border: 1px solid var(--st-border-color, rgba(49, 51, 63, 0.2));
+        border-radius: var(--st-border-radius, 0.75rem);
+        background: var(--st-secondary-background-color);
+    }
+
+    #history-status {
+        display: block;
+        font-size: 1.05rem;
+        line-height: 1.35;
+    }
+
+    #history-count {
+        margin: 0.35rem 0 0.45rem;
+        font-size: 0.95rem;
+        line-height: 1.4;
+    }
+
+    #history-list {
+        margin: 0 0 0.75rem;
+        padding-left: 1.25rem;
+        font-size: 0.95rem;
+        line-height: 1.45;
+    }
+
+    #history-download {
+        width: 100%;
+        min-height: 3rem;
+        padding: 0.65rem 0.9rem;
+        border: 0;
+        border-radius: var(--st-button-radius, var(--st-border-radius, 0.75rem));
+        color: white;
+        background: var(--st-primary-color);
+        font: inherit;
+        font-size: 1rem;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    #history-download:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+    }
+    """,
+    js=r"""
+    const historyStorageKey = "applate_loata_ajalugu_v1"
+    const maxHistoryItems = 1000
+
+    function normalizePlate(value) {
+        const clean = String(value ?? "")
+            .toUpperCase()
+            .replace(/[^0-9A-ZА-ЯІЇЄ]/g, "")
+
+        const estonian = clean.match(/\d{3}[A-Z]{3}/)
+        if (estonian) return estonian[0]
+
+        const ukrainian = clean.match(/[А-ЯІЇЄ]{2}\d{4}[А-ЯІЇЄ]{2}/)
+        if (ukrainian) return ukrainian[0]
+
+        return clean.slice(0, 12)
+    }
+
+    function readHistory() {
+        const parsed = JSON.parse(localStorage.getItem(historyStorageKey) || "[]")
+        if (!Array.isArray(parsed)) return []
+
+        return parsed
+            .map(item => ({
+                id: String(item?.id ?? ""),
+                number: normalizePlate(item?.number),
+                checked_at: String(item?.checked_at ?? ""),
+            }))
+            .filter(item => item.id && item.number && !Number.isNaN(Date.parse(item.checked_at)))
+    }
+
+    function saveHistory(history) {
+        localStorage.setItem(historyStorageKey, JSON.stringify(history.slice(-maxHistoryItems)))
+    }
+
+    function formatCheckedAt(value) {
+        return new Intl.DateTimeFormat("et-EE", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+        }).format(new Date(value))
+    }
+
+    function historyCsv(history) {
+        const dateFormat = new Intl.DateTimeFormat("et-EE", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+        })
+        const timeFormat = new Intl.DateTimeFormat("et-EE", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+        })
+        const rows = history.map(item => {
+            const checkedAt = new Date(item.checked_at)
+            return [dateFormat.format(checkedAt), timeFormat.format(checkedAt), item.number].join(";")
+        })
+        return "\uFEFFKuupäev;Kellaaeg;Registrinumber\n" + rows.join("\n")
+    }
+
+    export default function (component) {
+        const { data, parentElement } = component
+        const root = parentElement.querySelector("#history-root")
+        const status = parentElement.querySelector("#history-status")
+        const count = parentElement.querySelector("#history-count")
+        const list = parentElement.querySelector("#history-list")
+        const downloadButton = parentElement.querySelector("#history-download")
+        if (!root || !status || !count || !list || !downloadButton) return
+
+        const show = Boolean(data?.show)
+        if (parentElement.host) {
+            parentElement.host.style.display = show ? "block" : "none"
+        }
+        root.hidden = !show
+
+        const allowed = new Set((data?.allowed_numbers ?? []).map(normalizePlate))
+        const deniedNumber = normalizePlate(data?.denied_number)
+        const eventId = String(data?.event_id ?? "")
+        let history = []
+        let storageAvailable = true
+
+        try {
+            history = readHistory().filter(item => !allowed.has(item.number))
+            if (
+                deniedNumber
+                && eventId
+                && !allowed.has(deniedNumber)
+                && !history.some(item => item.id === eventId)
+            ) {
+                history.push({
+                    id: eventId,
+                    number: deniedNumber,
+                    checked_at: new Date().toISOString(),
+                })
+            }
+            history = history.slice(-maxHistoryItems)
+            saveHistory(history)
+        } catch (_) {
+            storageAvailable = false
+        }
+
+        if (!show) return
+
+        if (!storageAvailable) {
+            status.textContent = "Ajaloo salvestamine pole selles brauseris saadaval."
+            count.textContent = "Registrinumbrit ega pilti ei salvestatud."
+            list.replaceChildren()
+            downloadButton.disabled = true
+            return
+        }
+
+        status.textContent = deniedNumber
+            ? `${deniedNumber} salvestati selle seadme ajalukku.`
+            : "Selle seadme loata kontrollide ajalugu."
+        count.textContent = `Ajaloos on ${history.length} loata kontrolli.`
+
+        const recentItems = history.slice(-3).reverse()
+        list.replaceChildren(...recentItems.map(item => {
+            const row = document.createElement("li")
+            row.textContent = `${item.number} · ${formatCheckedAt(item.checked_at)}`
+            return row
+        }))
+
+        downloadButton.disabled = history.length === 0
+        downloadButton.onclick = () => {
+            const blob = new Blob([historyCsv(history)], { type: "text/csv;charset=utf-8" })
+            const url = URL.createObjectURL(blob)
+            const link = document.createElement("a")
+            const today = new Intl.DateTimeFormat("sv-SE").format(new Date())
+            link.href = url
+            link.download = `applate_loata_ajalugu_${today}.csv`
+            root.appendChild(link)
+            link.click()
+            link.remove()
+            setTimeout(() => URL.revokeObjectURL(url), 0)
+        }
+    }
+    """,
+)
+
 def puhasta_number(value):
     """Normaliseeri loendi, OCR-i või käsitsi sisestatud registrinumber."""
     clean = re.sub(r"[^0-9A-ZА-ЯІЇЄ]", "", str(value or "").upper())
@@ -400,6 +608,20 @@ LUBATUD_SISESTUS = {
 LUBATUD = frozenset(map(puhasta_number, LUBATUD_SISESTUS))
 
 
+def kuva_loata_ajalugu(*, key, number="", event_id="", show=False):
+    """Sünkroniseeri selle brauseri loata kontrollide kohalik ajalugu."""
+    return LOATA_AJALUGU(
+        key=key,
+        data={
+            "allowed_numbers": sorted(LUBATUD),
+            "denied_number": puhasta_number(number),
+            "event_id": event_id,
+            "show": show,
+        },
+        width="stretch",
+    )
+
+
 @st.cache_resource
 def lae_mudel():
     return easyocr.Reader(["en", "uk"])
@@ -417,6 +639,14 @@ def dekodeeri_kaamerapilt(data_url):
 
     encoded = data_url.split(",", 1)[1]
     return base64.b64decode(encoded, validate=True)
+
+
+def sea_tulemus(value):
+    """Salvesta uus kontrollitulemus ja anna sellele kordumatu ajaloo ID."""
+    number = puhasta_number(value)
+    st.session_state.tuvastatud = number
+    st.session_state.kontrolli_id = uuid4().hex if number else ""
+    return number
 
 
 def pilt_tehtud(camera_key):
@@ -441,6 +671,7 @@ def alusta_algusest():
     st.session_state.vaade = "kaamera"
     st.session_state.pending_image = None
     st.session_state.tuvastatud = ""
+    st.session_state.kontrolli_id = ""
     st.session_state.camera_error = None
     st.session_state.camera_id += 1
 
@@ -448,8 +679,14 @@ def alusta_algusest():
 st.session_state.setdefault("vaade", "kaamera")
 st.session_state.setdefault("pending_image", None)
 st.session_state.setdefault("tuvastatud", "")
+st.session_state.setdefault("kontrolli_id", "")
 st.session_state.setdefault("camera_id", 0)
 st.session_state.setdefault("camera_error", None)
+if st.session_state.tuvastatud and not st.session_state.kontrolli_id:
+    st.session_state.kontrolli_id = uuid4().hex
+
+# Puhasta ajaloost kõik numbrid, mis on vahepeal lubatud loendisse lisatud.
+kuva_loata_ajalugu(key="loata_ajalugu_sync")
 
 
 @st.dialog(
@@ -467,6 +704,12 @@ def tulemuse_popup():
             st.success("LUBA ON OLEMAS", icon=":material/check_circle:")
         else:
             st.error("LUBA PUUDUB", icon=":material/cancel:")
+            kuva_loata_ajalugu(
+                key=f"loata_ajalugu_{st.session_state.kontrolli_id}",
+                number=number,
+                event_id=st.session_state.kontrolli_id,
+                show=True,
+            )
     else:
         st.warning(
             "Numbrit ei õnnestunud lugeda. Sisesta see käsitsi.",
@@ -501,7 +744,7 @@ def tulemuse_popup():
         if not puhastatud:
             st.warning("Sisesta registrinumber.", icon=":material/warning:")
         else:
-            st.session_state.tuvastatud = puhastatud
+            sea_tulemus(puhastatud)
             st.rerun()
 
     if uus:
@@ -548,7 +791,7 @@ if st.session_state.vaade == "kaamera":
         if not puhastatud:
             st.warning("Sisesta registrinumber.", icon=":material/warning:")
         else:
-            st.session_state.tuvastatud = puhastatud
+            sea_tulemus(puhastatud)
             st.session_state.pop("number_input", None)
             st.session_state.number_input = puhastatud
             st.session_state.vaade = "tulemus"
@@ -568,7 +811,7 @@ elif st.session_state.vaade == "tootlemine":
     finally:
         st.session_state.pending_image = None
 
-    st.session_state.tuvastatud = number
+    number = sea_tulemus(number)
     st.session_state.pop("number_input", None)
     st.session_state.number_input = number
     st.session_state.vaade = "tulemus"
