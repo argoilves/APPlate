@@ -499,17 +499,23 @@ LOATA_AJALUGU = st.components.v2.component(
         root.hidden = !show
 
         const allowed = new Set((data?.allowed_numbers ?? []).map(normalizePlate))
+        const allowedPrefixes = new Set((data?.allowed_prefixes ?? []).map(normalizePlate))
         const deniedNumber = normalizePlate(data?.denied_number)
         const eventId = String(data?.event_id ?? "")
         let history = []
         let storageAvailable = true
 
+        const isAllowed = number => {
+            const normalized = normalizePlate(number)
+            return allowed.has(normalized) || allowedPrefixes.has(normalized.slice(0, 3))
+        }
+
         try {
-            history = readHistory().filter(item => !allowed.has(item.number))
+            history = readHistory().filter(item => !isAllowed(item.number))
             if (
                 deniedNumber
                 && eventId
-                && !allowed.has(deniedNumber)
+                && !isAllowed(deniedNumber)
                 && !history.some(item => item.id === eventId)
             ) {
                 history.push({
@@ -578,8 +584,7 @@ def puhasta_number(value):
     return clean[:12]
 
 
-# Siia võib numbrid kleepida tühikute, sidekriipsude või väiketähtedega.
-# Rakendus teeb nii loendi kui ka kasutaja/OCR-i tulemuse enne võrdlust ühesuguseks.
+# Vanad täisnumbrid jäävad alles, et varasemad load töötaksid edasi.
 LUBATUD_SISESTUS = {
     "618 JSR",
     "219 TNR",
@@ -607,6 +612,52 @@ LUBATUD_SISESTUS = {
 }
 LUBATUD = frozenset(map(puhasta_number, LUBATUD_SISESTUS))
 
+# Uuest loendist saadakse ainult registrimärgi kolm esimest märki. Eesti
+# numbrimärkidel on need kolm numbrit; AT3 kirje katab sama loogikaga ka
+# Ukraina formaadis alguse. Tühikud, sidekriipsud ja tähesuurus ei loe.
+LUBATUD_ALGUSTE_SISESTUS = {
+    "618",
+    "219",
+    "567",
+    "217",
+    "070",
+    "518",
+    "142",
+    "803",
+    "403",
+    "507",
+    "537",
+    "936",
+    "120",
+    "819",
+    "827",
+    "042",
+    "687",
+    "398",
+    "255",
+    "264",
+    "033",
+    "912",
+    "121",
+    "084",
+    "882",
+    "793",
+    "692",
+    "404",
+    "937",
+    "554",
+    "АТ3",
+    "AT3",
+    "916",
+}
+LUBATUD_ALGUSED = frozenset(map(puhasta_number, LUBATUD_ALGUSTE_SISESTUS))
+
+
+def on_lubatud(value):
+    """Kontrolli vana täisnumbrit või uue loendi kolme esimest märki."""
+    number = puhasta_number(value)
+    return bool(number) and (number in LUBATUD or number[:3] in LUBATUD_ALGUSED)
+
 
 def kuva_loata_ajalugu(*, key, number="", event_id="", show=False):
     """Sünkroniseeri selle brauseri loata kontrollide kohalik ajalugu."""
@@ -614,6 +665,7 @@ def kuva_loata_ajalugu(*, key, number="", event_id="", show=False):
         key=key,
         data={
             "allowed_numbers": sorted(LUBATUD),
+            "allowed_prefixes": sorted(LUBATUD_ALGUSED),
             "denied_number": puhasta_number(number),
             "event_id": event_id,
             "show": show,
@@ -700,7 +752,7 @@ def tulemuse_popup():
 
     if number:
         st.title(number, text_alignment="center")
-        if puhasta_number(number) in LUBATUD:
+        if on_lubatud(number):
             st.success("LUBA ON OLEMAS", icon=":material/check_circle:")
         else:
             st.error("LUBA PUUDUB", icon=":material/cancel:")
@@ -797,10 +849,6 @@ if st.session_state.vaade == "kaamera":
             st.session_state.vaade = "tulemus"
             st.rerun()
 
-    # Lae OCR-mudel samal ajal, kui kasutaja kaamerat sihib. Mudel jääb
-    # cache_resource abil järgmiste kontrollide jaoks serveri mällu.
-    lae_mudel()
-
 elif st.session_state.vaade == "tootlemine":
     st.title("Loen numbrit…", text_alignment="center")
     try:
@@ -820,3 +868,4 @@ elif st.session_state.vaade == "tootlemine":
 else:
     st.title("Reg nr kontroll", text_alignment="center")
     tulemuse_popup()
+
