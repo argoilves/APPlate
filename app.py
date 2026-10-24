@@ -1,11 +1,7 @@
 import base64
 import binascii
 import csv
-import hmac
-import json
 import re
-import urllib.error
-import urllib.request
 from datetime import date
 from io import BytesIO
 from io import StringIO
@@ -61,8 +57,7 @@ st.html(
 
         .st-key-kasitsi_submit button,
         .st-key-popup_submit button,
-        .st-key-popup_restart button,
-        .st-key-halda_load button {
+        .st-key-popup_restart button {
             width: 100% !important;
             min-height: 3.6rem !important;
             font-size: 1.15rem !important;
@@ -578,6 +573,281 @@ LOATA_AJALUGU = st.components.v2.component(
     """,
 )
 
+
+LUBADE_HALDUS = st.components.v2.component(
+    "applate_lubade_haldus",
+    html="""
+    <details id="manager">
+        <summary>Halda lubasid</summary>
+        <div id="manager-body">
+            <label for="plate-input">Lisa number</label>
+            <div id="add-row">
+                <input
+                    id="plate-input"
+                    type="text"
+                    maxlength="12"
+                    inputmode="text"
+                    autocomplete="off"
+                    placeholder="Näiteks 087 või 087MRD"
+                />
+                <button id="add-button" type="button">Lisa</button>
+            </div>
+            <p id="message" role="status"></p>
+            <div id="list-heading">
+                <strong>Lubatud algused</strong>
+                <span id="count"></span>
+            </div>
+            <div id="prefix-list"></div>
+            <p id="storage-note">Muudatused jäävad sellesse telefoni.</p>
+        </div>
+    </details>
+    """,
+    css="""
+    :host {
+        display: block;
+        color: var(--st-text-color);
+        font-family: var(--st-font);
+    }
+
+    #manager {
+        margin: 0.75rem 0 max(1rem, env(safe-area-inset-bottom, 0px));
+        border: 1px solid var(--st-border-color, rgba(49, 51, 63, 0.2));
+        border-radius: var(--st-border-radius, 0.75rem);
+        background: var(--st-secondary-background-color);
+        overflow: hidden;
+    }
+
+    summary {
+        min-height: 3.6rem;
+        display: flex;
+        align-items: center;
+        padding: 0.8rem 1rem;
+        font-size: 1.15rem;
+        font-weight: 750;
+        cursor: pointer;
+        touch-action: manipulation;
+    }
+
+    #manager-body {
+        padding: 0 1rem 1rem;
+    }
+
+    label,
+    #list-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 0.25rem 0 0.45rem;
+        font-size: 1.05rem;
+        font-weight: 700;
+    }
+
+    #add-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.55rem;
+    }
+
+    input,
+    button {
+        min-height: 3.4rem;
+        border-radius: var(--st-button-radius, var(--st-border-radius, 0.65rem));
+        font: 700 1.1rem/1 var(--st-font);
+    }
+
+    input {
+        min-width: 0;
+        padding: 0 0.8rem;
+        border: 1px solid var(--st-border-color, rgba(49, 51, 63, 0.3));
+        color: var(--st-text-color);
+        background: var(--st-background-color);
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+
+    button {
+        padding: 0 1.1rem;
+        border: 0;
+        color: white;
+        background: var(--st-primary-color);
+        cursor: pointer;
+        touch-action: manipulation;
+    }
+
+    #message {
+        min-height: 1.4rem;
+        margin: 0.5rem 0;
+        font-size: 1rem;
+        font-weight: 650;
+    }
+
+    #count {
+        font-weight: 500;
+    }
+
+    #prefix-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+        gap: 0.45rem;
+        max-height: 15rem;
+        overflow-y: auto;
+    }
+
+    .prefix-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.35rem;
+        min-height: 2.9rem;
+        padding: 0.35rem 0.4rem 0.35rem 0.7rem;
+        border: 1px solid var(--st-border-color, rgba(49, 51, 63, 0.22));
+        border-radius: 0.65rem;
+        background: var(--st-background-color);
+        font-size: 1.05rem;
+        font-weight: 750;
+    }
+
+    .remove-button {
+        min-height: 2.2rem;
+        width: 2.2rem;
+        padding: 0;
+        border: 1px solid var(--st-border-color, rgba(49, 51, 63, 0.25));
+        color: var(--st-text-color);
+        background: transparent;
+        font-size: 1.2rem;
+    }
+
+    #storage-note {
+        margin: 0.7rem 0 0;
+        font-size: 0.95rem;
+        opacity: 0.78;
+    }
+    """,
+    js=r"""
+    const storageKey = "applate_lubade_muudatused_v1"
+
+    function normalize(value) {
+        return String(value ?? "")
+            .toUpperCase()
+            .replace(/[^0-9A-ZА-ЯІЇЄ]/g, "")
+            .slice(0, 3)
+    }
+
+    function unique(values) {
+        return [...new Set((values ?? []).map(normalize).filter(value => value.length === 3))]
+            .sort()
+    }
+
+    function readChanges() {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(storageKey) || "{}")
+            return {
+                added: unique(parsed?.added),
+                removed: unique(parsed?.removed),
+            }
+        } catch (_) {
+            return { added: [], removed: [] }
+        }
+    }
+
+    function sameChanges(left, right) {
+        return JSON.stringify(left) === JSON.stringify(right)
+    }
+
+    export default function (component) {
+        const { data, parentElement, setStateValue } = component
+        const input = parentElement.querySelector("#plate-input")
+        const addButton = parentElement.querySelector("#add-button")
+        const message = parentElement.querySelector("#message")
+        const count = parentElement.querySelector("#count")
+        const list = parentElement.querySelector("#prefix-list")
+        if (!input || !addButton || !message || !count || !list) return
+
+        const base = unique(data?.base_prefixes)
+        let changes = readChanges()
+        const pythonChanges = {
+            added: unique(data?.changes?.added),
+            removed: unique(data?.changes?.removed),
+        }
+
+        function effectivePrefixes() {
+            const removed = new Set(changes.removed)
+            return unique([
+                ...base.filter(prefix => !removed.has(prefix)),
+                ...changes.added,
+            ])
+        }
+
+        function saveAndSync(statusText) {
+            try {
+                localStorage.setItem(storageKey, JSON.stringify(changes))
+                message.textContent = statusText
+                setStateValue("changes", changes)
+            } catch (_) {
+                message.textContent = "Selles brauseris ei saa muudatusi salvestada."
+            }
+            render()
+        }
+
+        function removePrefix(prefix) {
+            if (base.includes(prefix)) {
+                changes.removed = unique([...changes.removed, prefix])
+            }
+            changes.added = changes.added.filter(value => value !== prefix)
+            saveAndSync(`${prefix} eemaldatud.`)
+        }
+
+        function render() {
+            const prefixes = effectivePrefixes()
+            count.textContent = `${prefixes.length} tk`
+            list.replaceChildren(...prefixes.map(prefix => {
+                const row = document.createElement("div")
+                row.className = "prefix-item"
+
+                const value = document.createElement("span")
+                value.textContent = prefix
+
+                const remove = document.createElement("button")
+                remove.type = "button"
+                remove.className = "remove-button"
+                remove.textContent = "×"
+                remove.setAttribute("aria-label", `Eemalda ${prefix}`)
+                remove.onclick = () => removePrefix(prefix)
+
+                row.append(value, remove)
+                return row
+            }))
+        }
+
+        addButton.onclick = () => {
+            const prefix = normalize(input.value)
+            if (prefix.length !== 3) {
+                message.textContent = "Sisesta vähemalt kolm numbrit või tähte."
+                return
+            }
+            changes.removed = changes.removed.filter(value => value !== prefix)
+            if (!base.includes(prefix)) {
+                changes.added = unique([...changes.added, prefix])
+            }
+            input.value = ""
+            saveAndSync(`${prefix} lubatud.`)
+        }
+
+        input.onkeydown = event => {
+            if (event.key === "Enter") {
+                event.preventDefault()
+                addButton.click()
+            }
+        }
+
+        render()
+        if (!sameChanges(changes, pythonChanges)) {
+            setStateValue("changes", changes)
+        }
+    }
+    """,
+)
+
 def puhasta_number(value):
     """Normaliseeri loendi, OCR-i või käsitsi sisestatud registrinumber."""
     clean = re.sub(r"[^0-9A-ZА-ЯІЇЄ]", "", str(value or "").upper())
@@ -594,17 +864,6 @@ def puhasta_number(value):
 
 
 LOENDI_FAIL = Path(__file__).with_name("lubatud.csv")
-GITHUB_API_URL = "https://api.github.com/repos/argoilves/APPlate/contents/lubatud.csv"
-GITHUB_RAW_URL = "https://raw.githubusercontent.com/argoilves/APPlate/main/lubatud.csv"
-LOENDI_VALJAD = ("kirje", "tyyp", "markus", "kehtib_kuni")
-
-
-def loe_saladus(nimi):
-    """Tagasta Streamliti saladus või tühi väärtus seadistamata äpis."""
-    try:
-        return str(st.secrets[nimi]).strip()
-    except (KeyError, FileNotFoundError):
-        return ""
 
 
 def parsi_loend(csv_text):
@@ -626,75 +885,9 @@ def parsi_loend(csv_text):
     return rows
 
 
-def loend_csv(rows):
-    """Muuda loend GitHubi salvestamiseks stabiilseks CSV-tekstiks."""
-    output = StringIO()
-    writer = csv.DictWriter(
-        output,
-        fieldnames=LOENDI_VALJAD,
-        delimiter=";",
-        lineterminator="\n",
-    )
-    writer.writeheader()
-    writer.writerows(rows)
-    return output.getvalue()
-
-
-def github_request(url, *, token="", method="GET", payload=None):
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "APPlate-Streamlit",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    data = None
-    if payload is not None:
-        data = json.dumps(payload).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-    request = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(request, timeout=8) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
-@st.cache_data(ttl=10, max_entries=1, show_spinner=False)
 def lae_loend():
-    """Lae värske loend GitHubist; võrguvea korral kasuta äpiga kaasas olevat faili."""
-    token = loe_saladus("GITHUB_TOKEN")
-    try:
-        if token:
-            data = github_request(GITHUB_API_URL, token=token)
-            text = base64.b64decode(data["content"]).decode("utf-8-sig")
-        else:
-            request = urllib.request.Request(
-                GITHUB_RAW_URL,
-                headers={"User-Agent": "APPlate-Streamlit"},
-            )
-            with urllib.request.urlopen(request, timeout=8) as response:
-                text = response.read().decode("utf-8-sig")
-        rows = parsi_loend(text)
-        if rows:
-            return rows
-    except (OSError, KeyError, ValueError, urllib.error.URLError):
-        pass
+    """Lae äpiga kaasas olev baasinimekiri."""
     return parsi_loend(LOENDI_FAIL.read_text(encoding="utf-8-sig"))
-
-
-def salvesta_loend(rows):
-    """Salvesta loend piiratud GitHubi võtmega otse main-harusse."""
-    token = loe_saladus("GITHUB_TOKEN")
-    if not token:
-        raise RuntimeError("GitHubi võti pole seadistatud.")
-
-    current = github_request(GITHUB_API_URL, token=token)
-    payload = {
-        "message": "Uuenda lubade loendit äpist",
-        "content": base64.b64encode(loend_csv(rows).encode("utf-8")).decode("ascii"),
-        "sha": current["sha"],
-        "branch": "main",
-    }
-    github_request(GITHUB_API_URL, token=token, method="PUT", payload=payload)
-    lae_loend.clear()
 
 
 def kirje_kehtib(row):
@@ -723,13 +916,43 @@ def aktiivsed_load(rows):
 
 
 LUBADE_READ = lae_loend()
-LUBATUD, LUBATUD_ALGUSED = aktiivsed_load(LUBADE_READ)
+LUBATUD, BAAS_LUBATUD_ALGUSED = aktiivsed_load(LUBADE_READ)
+
+
+def kohalikud_muudatused():
+    """Loe selle brauseri CCv2 komponendi lisatud ja eemaldatud algused."""
+    component_state = st.session_state.get("lubade_haldus")
+    changes = getattr(component_state, "changes", None)
+    if changes is None and isinstance(component_state, dict):
+        changes = component_state.get("changes")
+    if not isinstance(changes, dict):
+        changes = {}
+
+    added = {
+        puhasta_number(value)[:3]
+        for value in changes.get("added", [])
+        if len(puhasta_number(value)) >= 3
+    }
+    removed = {
+        puhasta_number(value)[:3]
+        for value in changes.get("removed", [])
+        if len(puhasta_number(value)) >= 3
+    }
+    return frozenset(added), frozenset(removed)
+
+
+KOHALIKULT_LISATUD, KOHALIKULT_EEMALDATUD = kohalikud_muudatused()
+LUBATUD_ALGUSED = frozenset(
+    (BAAS_LUBATUD_ALGUSED | KOHALIKULT_LISATUD) - KOHALIKULT_EEMALDATUD
+)
 
 
 def on_lubatud(value):
     """Kontrolli vana täisnumbrit või uue loendi kolme esimest märki."""
     number = puhasta_number(value)
-    return bool(number) and (number in LUBATUD or number[:3] in LUBATUD_ALGUSED)
+    return bool(number) and number[:3] not in KOHALIKULT_EEMALDATUD and (
+        number in LUBATUD or number[:3] in LUBATUD_ALGUSED
+    )
 
 
 def kuva_loata_ajalugu(*, key, number="", event_id="", show=False):
@@ -737,7 +960,11 @@ def kuva_loata_ajalugu(*, key, number="", event_id="", show=False):
     return LOATA_AJALUGU(
         key=key,
         data={
-            "allowed_numbers": sorted(LUBATUD),
+            "allowed_numbers": sorted(
+                number
+                for number in LUBATUD
+                if number[:3] not in KOHALIKULT_EEMALDATUD
+            ),
             "allowed_prefixes": sorted(LUBATUD_ALGUSED),
             "denied_number": puhasta_number(number),
             "event_id": event_id,
@@ -807,198 +1034,11 @@ st.session_state.setdefault("tuvastatud", "")
 st.session_state.setdefault("kontrolli_id", "")
 st.session_state.setdefault("camera_id", 0)
 st.session_state.setdefault("camera_error", None)
-st.session_state.setdefault("haldus_avatud", False)
-st.session_state.setdefault("haldus_ok", False)
-st.session_state.setdefault("haldus_teade", "")
-st.session_state.setdefault("eemalda_kirje", "")
 if st.session_state.tuvastatud and not st.session_state.kontrolli_id:
     st.session_state.kontrolli_id = uuid4().hex
 
 # Puhasta ajaloost kõik numbrid, mis on vahepeal lubatud loendisse lisatud.
 kuva_loata_ajalugu(key="loata_ajalugu_sync")
-
-
-def loa_valiku_nimi(row):
-    osad = [row["kirje"]]
-    if row.get("markus"):
-        osad.append(row["markus"])
-    if row.get("kehtib_kuni"):
-        osad.append(f"kuni {row['kehtib_kuni']}")
-    return " · ".join(osad)
-
-
-@st.dialog(
-    "Halda lubasid",
-    width="large",
-    dismissible=False,
-    icon=":material/edit_note:",
-)
-def lubade_haldus():
-    github_token = loe_saladus("GITHUB_TOKEN")
-    admin_password = loe_saladus("ADMIN_PASSWORD")
-
-    if not github_token or not admin_password:
-        st.error(
-            "Haldus pole veel seadistatud. Kontrollimine töötab edasi, "
-            "aga lubade muutmiseks on vaja ühekordset seadistust.",
-            icon=":material/settings:",
-        )
-        if st.button("Sulge", width="stretch"):
-            st.session_state.haldus_avatud = False
-            st.rerun()
-        return
-
-    if not st.session_state.haldus_ok:
-        st.write("Sisesta haldusparool.")
-        with st.form("haldus_login", border=False):
-            password = st.text_input(
-                "Haldusparool",
-                type="password",
-                autocomplete="current-password",
-            )
-            login = st.form_submit_button(
-                "Ava haldus",
-                type="primary",
-                width="stretch",
-                icon=":material/lock_open:",
-            )
-        if login:
-            if hmac.compare_digest(password, admin_password):
-                st.session_state.haldus_ok = True
-                st.rerun()
-            else:
-                st.error("Vale haldusparool.", icon=":material/error:")
-        if st.button("Sulge", width="stretch", key="sulge_login"):
-            st.session_state.haldus_avatud = False
-            st.rerun()
-        return
-
-    if st.session_state.haldus_teade:
-        st.success(st.session_state.haldus_teade, icon=":material/check_circle:")
-        st.session_state.haldus_teade = ""
-
-    st.subheader("Lisa luba")
-    st.caption("Sisesta terve number või ainult algus. Salvestatakse esimesed kolm märki.")
-    with st.form("lisa_luba", border=True):
-        uus_number = st.text_input(
-            "Number või algus",
-            max_chars=12,
-            placeholder="Näiteks 087MRD või 087",
-            autocomplete="off",
-            icon=":material/license:",
-        )
-        markus = st.text_input(
-            "Märkus (soovi korral)",
-            placeholder="Näiteks ajutine parkija",
-        )
-        kehtib_kuni = st.text_input(
-            "Kehtib kuni (soovi korral)",
-            placeholder="AAAA-KK-PP",
-        )
-        lisa = st.form_submit_button(
-            "Lisa luba",
-            type="primary",
-            width="stretch",
-            icon=":material/add_circle:",
-        )
-
-    if lisa:
-        algus = puhasta_number(uus_number)[:3]
-        try:
-            if len(algus) != 3:
-                raise ValueError("Sisesta vähemalt kolm numbrit või tähte.")
-            if kehtib_kuni:
-                date.fromisoformat(kehtib_kuni)
-
-            rows = lae_loend()
-            olemas = next(
-                (
-                    row
-                    for row in rows
-                    if row["tyyp"] == "algus" and row["kirje"] == algus
-                ),
-                None,
-            )
-            if olemas:
-                olemas["markus"] = markus.strip()
-                olemas["kehtib_kuni"] = kehtib_kuni.strip()
-                teade = f"{algus} luba uuendatud."
-            else:
-                rows.append(
-                    {
-                        "kirje": algus,
-                        "tyyp": "algus",
-                        "markus": markus.strip(),
-                        "kehtib_kuni": kehtib_kuni.strip(),
-                    }
-                )
-                teade = f"{algus} luba lisatud."
-            salvesta_loend(rows)
-            st.session_state.haldus_teade = teade
-            st.rerun()
-        except ValueError as error:
-            st.error(str(error), icon=":material/warning:")
-        except (OSError, KeyError, RuntimeError, urllib.error.URLError) as error:
-            st.error(
-                f"Salvestamine ebaõnnestus: {error}",
-                icon=":material/error:",
-            )
-
-    st.subheader("Eemalda luba")
-    hallatavad = [row for row in lae_loend() if row["tyyp"] == "algus"]
-    hallatavad.sort(key=lambda row: row["kirje"])
-    if hallatavad:
-        valik = st.selectbox(
-            "Vali luba",
-            options=list(range(len(hallatavad))),
-            format_func=lambda index: loa_valiku_nimi(hallatavad[index]),
-        )
-        valitud = hallatavad[valik]["kirje"]
-        if st.button(
-            "Eemalda valitud luba",
-            width="stretch",
-            icon=":material/delete:",
-        ):
-            st.session_state.eemalda_kirje = valitud
-            st.rerun()
-
-        if st.session_state.eemalda_kirje:
-            eemaldatav = st.session_state.eemalda_kirje
-            st.warning(f"Kas eemaldada luba {eemaldatav}?", icon=":material/warning:")
-            with st.container(horizontal=True):
-                if st.button("Jäta alles", width="stretch"):
-                    st.session_state.eemalda_kirje = ""
-                    st.rerun()
-                if st.button(
-                    "Jah, eemalda",
-                    type="primary",
-                    width="stretch",
-                ):
-                    try:
-                        rows = [
-                            row
-                            for row in lae_loend()
-                            if not (
-                                row["tyyp"] == "algus"
-                                and row["kirje"] == eemaldatav
-                            )
-                        ]
-                        salvesta_loend(rows)
-                        st.session_state.eemalda_kirje = ""
-                        st.session_state.haldus_teade = f"{eemaldatav} luba eemaldatud."
-                        st.rerun()
-                    except (OSError, KeyError, RuntimeError, urllib.error.URLError) as error:
-                        st.error(
-                            f"Eemaldamine ebaõnnestus: {error}",
-                            icon=":material/error:",
-                        )
-    else:
-        st.info("Lisatud lubasid veel pole.")
-
-    if st.button("Sulge haldus", width="stretch", icon=":material/close:"):
-        st.session_state.haldus_avatud = False
-        st.session_state.eemalda_kirje = ""
-        st.rerun()
 
 
 @st.dialog(
@@ -1109,16 +1149,24 @@ if st.session_state.vaade == "kaamera":
             st.session_state.vaade = "tulemus"
             st.rerun()
 
-    if st.button(
-        "Halda lubasid",
-        key="halda_load",
+    LUBADE_HALDUS(
+        key="lubade_haldus",
+        data={
+            "base_prefixes": sorted(BAAS_LUBATUD_ALGUSED),
+            "changes": {
+                "added": sorted(KOHALIKULT_LISATUD),
+                "removed": sorted(KOHALIKULT_EEMALDATUD),
+            },
+        },
+        default={
+            "changes": {
+                "added": sorted(KOHALIKULT_LISATUD),
+                "removed": sorted(KOHALIKULT_EEMALDATUD),
+            }
+        },
+        on_changes_change=lambda: None,
         width="stretch",
-        icon=":material/edit_note:",
-    ):
-        st.session_state.haldus_avatud = True
-
-    if st.session_state.haldus_avatud:
-        lubade_haldus()
+    )
 
 elif st.session_state.vaade == "tootlemine":
     st.title("Loen numbrit…", text_alignment="center")
