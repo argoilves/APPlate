@@ -1,7 +1,15 @@
 import base64
 import binascii
+import csv
+import hmac
+import json
 import re
+import urllib.error
+import urllib.request
+from datetime import date
 from io import BytesIO
+from io import StringIO
+from pathlib import Path
 from uuid import uuid4
 
 import easyocr
@@ -53,7 +61,8 @@ st.html(
 
         .st-key-kasitsi_submit button,
         .st-key-popup_submit button,
-        .st-key-popup_restart button {
+        .st-key-popup_restart button,
+        .st-key-halda_load button {
             width: 100% !important;
             min-height: 3.6rem !important;
             font-size: 1.15rem !important;
@@ -584,74 +593,137 @@ def puhasta_number(value):
     return clean[:12]
 
 
-# Vanad täisnumbrid jäävad alles, et varasemad load töötaksid edasi.
-LUBATUD_SISESTUS = {
-    "618 JSR",
-    "219 TNR",
-    "567 DRA",
-    "217 BVK",
-    "070 BMY",
-    "518 BFX",
-    "142 BYG",
-    "803 PGB",
-    "403 NDN",
-    "507 TKK",
-    "537 DCF",
-    "936 DCH",
-    "120 PLS",
-    "819 MKE",
-    "827 HHL",
-    "042 BMP",
-    "687 MBH",
-    "398 MGL",
-    "СВ0347СС",
-    "264 DBK",
-    "033 XRL",
-    "912 SDL",
-    "121 VZW",
-}
-LUBATUD = frozenset(map(puhasta_number, LUBATUD_SISESTUS))
+LOENDI_FAIL = Path(__file__).with_name("lubatud.csv")
+GITHUB_API_URL = "https://api.github.com/repos/argoilves/APPlate/contents/lubatud.csv"
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/argoilves/APPlate/main/lubatud.csv"
+LOENDI_VALJAD = ("kirje", "tyyp", "markus", "kehtib_kuni")
 
-# Uuest loendist saadakse ainult registrimärgi kolm esimest märki. Eesti
-# numbrimärkidel on need kolm numbrit; AT3 kirje katab sama loogikaga ka
-# Ukraina formaadis alguse. Tühikud, sidekriipsud ja tähesuurus ei loe.
-LUBATUD_ALGUSTE_SISESTUS = {
-    "618",
-    "219",
-    "567",
-    "217",
-    "070",
-    "518",
-    "142",
-    "803",
-    "403",
-    "507",
-    "537",
-    "936",
-    "120",
-    "819",
-    "827",
-    "042",
-    "687",
-    "398",
-    "255",
-    "264",
-    "033",
-    "912",
-    "121",
-    "084",
-    "087",
-    "882",
-    "793",
-    "692",
-    "404",
-    "937",
-    "554",
-    "АТ3",
-    "AT3",
-    "916",
-}
-LUBATUD_ALGUSED = frozenset(map(puhasta_number, LUBATUD_ALGUSTE_SISESTUS))
+
+def loe_saladus(nimi):
+    """Tagasta Streamliti saladus või tühi väärtus seadistamata äpis."""
+    try:
+        return str(st.secrets[nimi]).strip()
+    except (KeyError, FileNotFoundError):
+        return ""
+
+
+def parsi_loend(csv_text):
+    """Loe semikoolonitega loend ja normaliseeri väljad."""
+    rows = []
+    for raw in csv.DictReader(StringIO(csv_text.lstrip("\ufeff")), delimiter=";"):
+        kirje = puhasta_number(raw.get("kirje"))
+        tyyp = str(raw.get("tyyp") or "algus").strip().lower()
+        if not kirje or tyyp not in {"tais", "algus"}:
+            continue
+        rows.append(
+            {
+                "kirje": kirje if tyyp == "tais" else kirje[:3],
+                "tyyp": tyyp,
+                "markus": str(raw.get("markus") or "").strip(),
+                "kehtib_kuni": str(raw.get("kehtib_kuni") or "").strip(),
+            }
+        )
+    return rows
+
+
+def loend_csv(rows):
+    """Muuda loend GitHubi salvestamiseks stabiilseks CSV-tekstiks."""
+    output = StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=LOENDI_VALJAD,
+        delimiter=";",
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    writer.writerows(rows)
+    return output.getvalue()
+
+
+def github_request(url, *, token="", method="GET", payload=None):
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "APPlate-Streamlit",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(request, timeout=8) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+@st.cache_data(ttl=10, max_entries=1, show_spinner=False)
+def lae_loend():
+    """Lae värske loend GitHubist; võrguvea korral kasuta äpiga kaasas olevat faili."""
+    token = loe_saladus("GITHUB_TOKEN")
+    try:
+        if token:
+            data = github_request(GITHUB_API_URL, token=token)
+            text = base64.b64decode(data["content"]).decode("utf-8-sig")
+        else:
+            request = urllib.request.Request(
+                GITHUB_RAW_URL,
+                headers={"User-Agent": "APPlate-Streamlit"},
+            )
+            with urllib.request.urlopen(request, timeout=8) as response:
+                text = response.read().decode("utf-8-sig")
+        rows = parsi_loend(text)
+        if rows:
+            return rows
+    except (OSError, KeyError, ValueError, urllib.error.URLError):
+        pass
+    return parsi_loend(LOENDI_FAIL.read_text(encoding="utf-8-sig"))
+
+
+def salvesta_loend(rows):
+    """Salvesta loend piiratud GitHubi võtmega otse main-harusse."""
+    token = loe_saladus("GITHUB_TOKEN")
+    if not token:
+        raise RuntimeError("GitHubi võti pole seadistatud.")
+
+    current = github_request(GITHUB_API_URL, token=token)
+    payload = {
+        "message": "Uuenda lubade loendit äpist",
+        "content": base64.b64encode(loend_csv(rows).encode("utf-8")).decode("ascii"),
+        "sha": current["sha"],
+        "branch": "main",
+    }
+    github_request(GITHUB_API_URL, token=token, method="PUT", payload=payload)
+    lae_loend.clear()
+
+
+def kirje_kehtib(row):
+    lopp = row.get("kehtib_kuni", "")
+    if not lopp:
+        return True
+    try:
+        return date.today() <= date.fromisoformat(lopp)
+    except ValueError:
+        return True
+
+
+def aktiivsed_load(rows):
+    """Koosta täisnumbrite ja kolme märgi alguste aktiivsed hulgad."""
+    tais = {
+        row["kirje"]
+        for row in rows
+        if row["tyyp"] == "tais" and kirje_kehtib(row)
+    }
+    algused = {
+        row["kirje"][:3]
+        for row in rows
+        if row["tyyp"] == "algus" and kirje_kehtib(row)
+    }
+    return frozenset(tais), frozenset(algused)
+
+
+LUBADE_READ = lae_loend()
+LUBATUD, LUBATUD_ALGUSED = aktiivsed_load(LUBADE_READ)
 
 
 def on_lubatud(value):
@@ -735,11 +807,198 @@ st.session_state.setdefault("tuvastatud", "")
 st.session_state.setdefault("kontrolli_id", "")
 st.session_state.setdefault("camera_id", 0)
 st.session_state.setdefault("camera_error", None)
+st.session_state.setdefault("haldus_avatud", False)
+st.session_state.setdefault("haldus_ok", False)
+st.session_state.setdefault("haldus_teade", "")
+st.session_state.setdefault("eemalda_kirje", "")
 if st.session_state.tuvastatud and not st.session_state.kontrolli_id:
     st.session_state.kontrolli_id = uuid4().hex
 
 # Puhasta ajaloost kõik numbrid, mis on vahepeal lubatud loendisse lisatud.
 kuva_loata_ajalugu(key="loata_ajalugu_sync")
+
+
+def loa_valiku_nimi(row):
+    osad = [row["kirje"]]
+    if row.get("markus"):
+        osad.append(row["markus"])
+    if row.get("kehtib_kuni"):
+        osad.append(f"kuni {row['kehtib_kuni']}")
+    return " · ".join(osad)
+
+
+@st.dialog(
+    "Halda lubasid",
+    width="large",
+    dismissible=False,
+    icon=":material/edit_note:",
+)
+def lubade_haldus():
+    github_token = loe_saladus("GITHUB_TOKEN")
+    admin_password = loe_saladus("ADMIN_PASSWORD")
+
+    if not github_token or not admin_password:
+        st.error(
+            "Haldus pole veel seadistatud. Kontrollimine töötab edasi, "
+            "aga lubade muutmiseks on vaja ühekordset seadistust.",
+            icon=":material/settings:",
+        )
+        if st.button("Sulge", width="stretch"):
+            st.session_state.haldus_avatud = False
+            st.rerun()
+        return
+
+    if not st.session_state.haldus_ok:
+        st.write("Sisesta haldusparool.")
+        with st.form("haldus_login", border=False):
+            password = st.text_input(
+                "Haldusparool",
+                type="password",
+                autocomplete="current-password",
+            )
+            login = st.form_submit_button(
+                "Ava haldus",
+                type="primary",
+                width="stretch",
+                icon=":material/lock_open:",
+            )
+        if login:
+            if hmac.compare_digest(password, admin_password):
+                st.session_state.haldus_ok = True
+                st.rerun()
+            else:
+                st.error("Vale haldusparool.", icon=":material/error:")
+        if st.button("Sulge", width="stretch", key="sulge_login"):
+            st.session_state.haldus_avatud = False
+            st.rerun()
+        return
+
+    if st.session_state.haldus_teade:
+        st.success(st.session_state.haldus_teade, icon=":material/check_circle:")
+        st.session_state.haldus_teade = ""
+
+    st.subheader("Lisa luba")
+    st.caption("Sisesta terve number või ainult algus. Salvestatakse esimesed kolm märki.")
+    with st.form("lisa_luba", border=True):
+        uus_number = st.text_input(
+            "Number või algus",
+            max_chars=12,
+            placeholder="Näiteks 087MRD või 087",
+            autocomplete="off",
+            icon=":material/license:",
+        )
+        markus = st.text_input(
+            "Märkus (soovi korral)",
+            placeholder="Näiteks ajutine parkija",
+        )
+        kehtib_kuni = st.text_input(
+            "Kehtib kuni (soovi korral)",
+            placeholder="AAAA-KK-PP",
+        )
+        lisa = st.form_submit_button(
+            "Lisa luba",
+            type="primary",
+            width="stretch",
+            icon=":material/add_circle:",
+        )
+
+    if lisa:
+        algus = puhasta_number(uus_number)[:3]
+        try:
+            if len(algus) != 3:
+                raise ValueError("Sisesta vähemalt kolm numbrit või tähte.")
+            if kehtib_kuni:
+                date.fromisoformat(kehtib_kuni)
+
+            rows = lae_loend()
+            olemas = next(
+                (
+                    row
+                    for row in rows
+                    if row["tyyp"] == "algus" and row["kirje"] == algus
+                ),
+                None,
+            )
+            if olemas:
+                olemas["markus"] = markus.strip()
+                olemas["kehtib_kuni"] = kehtib_kuni.strip()
+                teade = f"{algus} luba uuendatud."
+            else:
+                rows.append(
+                    {
+                        "kirje": algus,
+                        "tyyp": "algus",
+                        "markus": markus.strip(),
+                        "kehtib_kuni": kehtib_kuni.strip(),
+                    }
+                )
+                teade = f"{algus} luba lisatud."
+            salvesta_loend(rows)
+            st.session_state.haldus_teade = teade
+            st.rerun()
+        except ValueError as error:
+            st.error(str(error), icon=":material/warning:")
+        except (OSError, KeyError, RuntimeError, urllib.error.URLError) as error:
+            st.error(
+                f"Salvestamine ebaõnnestus: {error}",
+                icon=":material/error:",
+            )
+
+    st.subheader("Eemalda luba")
+    hallatavad = [row for row in lae_loend() if row["tyyp"] == "algus"]
+    hallatavad.sort(key=lambda row: row["kirje"])
+    if hallatavad:
+        valik = st.selectbox(
+            "Vali luba",
+            options=list(range(len(hallatavad))),
+            format_func=lambda index: loa_valiku_nimi(hallatavad[index]),
+        )
+        valitud = hallatavad[valik]["kirje"]
+        if st.button(
+            "Eemalda valitud luba",
+            width="stretch",
+            icon=":material/delete:",
+        ):
+            st.session_state.eemalda_kirje = valitud
+            st.rerun()
+
+        if st.session_state.eemalda_kirje:
+            eemaldatav = st.session_state.eemalda_kirje
+            st.warning(f"Kas eemaldada luba {eemaldatav}?", icon=":material/warning:")
+            with st.container(horizontal=True):
+                if st.button("Jäta alles", width="stretch"):
+                    st.session_state.eemalda_kirje = ""
+                    st.rerun()
+                if st.button(
+                    "Jah, eemalda",
+                    type="primary",
+                    width="stretch",
+                ):
+                    try:
+                        rows = [
+                            row
+                            for row in lae_loend()
+                            if not (
+                                row["tyyp"] == "algus"
+                                and row["kirje"] == eemaldatav
+                            )
+                        ]
+                        salvesta_loend(rows)
+                        st.session_state.eemalda_kirje = ""
+                        st.session_state.haldus_teade = f"{eemaldatav} luba eemaldatud."
+                        st.rerun()
+                    except (OSError, KeyError, RuntimeError, urllib.error.URLError) as error:
+                        st.error(
+                            f"Eemaldamine ebaõnnestus: {error}",
+                            icon=":material/error:",
+                        )
+    else:
+        st.info("Lisatud lubasid veel pole.")
+
+    if st.button("Sulge haldus", width="stretch", icon=":material/close:"):
+        st.session_state.haldus_avatud = False
+        st.session_state.eemalda_kirje = ""
+        st.rerun()
 
 
 @st.dialog(
@@ -849,6 +1108,17 @@ if st.session_state.vaade == "kaamera":
             st.session_state.number_input = puhastatud
             st.session_state.vaade = "tulemus"
             st.rerun()
+
+    if st.button(
+        "Halda lubasid",
+        key="halda_load",
+        width="stretch",
+        icon=":material/edit_note:",
+    ):
+        st.session_state.haldus_avatud = True
+
+    if st.session_state.haldus_avatud:
+        lubade_haldus()
 
 elif st.session_state.vaade == "tootlemine":
     st.title("Loen numbrit…", text_alignment="center")
