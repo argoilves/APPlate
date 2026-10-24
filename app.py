@@ -8,10 +8,7 @@ from io import StringIO
 from pathlib import Path
 from uuid import uuid4
 
-import easyocr
-import numpy as np
 import streamlit as st
-from PIL import Image
 
 
 st.set_page_config(
@@ -976,10 +973,15 @@ def kuva_loata_ajalugu(*, key, number="", event_id="", show=False):
 
 @st.cache_resource
 def lae_mudel():
+    import easyocr
+
     return easyocr.Reader(["en", "uk"])
 
 
 def loe_number(image_bytes):
+    import numpy as np
+    from PIL import Image
+
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
     osad = lae_mudel().readtext(np.array(image), detail=0)
     return puhasta_number("".join(osad))
