@@ -721,7 +721,8 @@ LUBADE_HALDUS = st.components.v2.component(
     }
     """,
     js=r"""
-    const storageKey = "applate_lubade_muudatused_v1"
+    // v2 alustab puhtalt: varasemasse telefoni mällu võis jääda liiga lai 033 luba.
+    const storageKey = "applate_lubade_muudatused_v2"
 
     function normalize(value) {
         return String(value ?? "")
