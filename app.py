@@ -807,15 +807,15 @@ LUBADE_HALDUS = st.components.v2.component(
                 const remove = document.createElement("button")
                 remove.type = "button"
                 remove.className = "remove-button"
-            if (base.includes(prefix)) {
-                remove.textContent = "✓"
-                remove.disabled = true
-                remove.setAttribute("aria-label", `${prefix} on põhinimekirjas`)
-            } else {
-                remove.textContent = "×"
-                remove.setAttribute("aria-label", `Eemalda ${prefix}`)
-                remove.onclick = () => removePrefix(prefix)
-            }
+                if (base.includes(prefix)) {
+                    remove.textContent = "✓"
+                    remove.disabled = true
+                    remove.setAttribute("aria-label", `${prefix} on põhinimekirjas`)
+                } else {
+                    remove.textContent = "×"
+                    remove.setAttribute("aria-label", `Eemalda ${prefix}`)
+                    remove.onclick = () => removePrefix(prefix)
+                }
 
                 row.append(value, remove)
                 return row
@@ -969,9 +969,7 @@ def kuva_loata_ajalugu(*, key, number="", event_id="", show=False):
     return LOATA_AJALUGU(
         key=key,
         data={
-            "allowed_numbers": sorted(
-                LUBATUD
-            ),
+            "allowed_numbers": sorted(LUBATUD),
             "allowed_prefixes": sorted(LUBATUD_ALGUSED),
             "denied_number": puhasta_number(number),
             "event_id": event_id,
