@@ -768,9 +768,8 @@ LUBADE_HALDUS = st.components.v2.component(
         }
 
         function effectivePrefixes() {
-            const removed = new Set(changes.removed)
             return unique([
-                ...base.filter(prefix => !removed.has(prefix)),
+                ...base,
                 ...changes.added,
             ])
         }
@@ -788,7 +787,8 @@ LUBADE_HALDUS = st.components.v2.component(
 
         function removePrefix(prefix) {
             if (base.includes(prefix)) {
-                changes.removed = unique([...changes.removed, prefix])
+                message.textContent = `${prefix} on põhinimekirjas ja seda ei saa siin eemaldada.`
+                return
             }
             changes.added = changes.added.filter(value => value !== prefix)
             saveAndSync(`${prefix} eemaldatud.`)
@@ -807,9 +807,15 @@ LUBADE_HALDUS = st.components.v2.component(
                 const remove = document.createElement("button")
                 remove.type = "button"
                 remove.className = "remove-button"
+            if (base.includes(prefix)) {
+                remove.textContent = "✓"
+                remove.disabled = true
+                remove.setAttribute("aria-label", `${prefix} on põhinimekirjas`)
+            } else {
                 remove.textContent = "×"
                 remove.setAttribute("aria-label", `Eemalda ${prefix}`)
                 remove.onclick = () => removePrefix(prefix)
+            }
 
                 row.append(value, remove)
                 return row
@@ -848,6 +854,12 @@ LUBADE_HALDUS = st.components.v2.component(
 def puhasta_number(value):
     """Normaliseeri loendi, OCR-i või käsitsi sisestatud registrinumber."""
     clean = re.sub(r"[^0-9A-ZА-ЯІЇЄ]", "", str(value or "").upper())
+
+    # OCR ajab numbrimärgi kolmes esimeses positsioonis sageli tähed ja
+    # numbrid segamini. Paranda ainult ladina tähtedega Eesti formaadi
+    # kandidaate, et välismaa numbrimärke mitte rikkuda.
+    if len(clean) >= 4 and re.fullmatch(r"[0-9OILZSBG]{3}[A-Z]+", clean):
+        clean = clean[:3].translate(str.maketrans("OILZSBG", "0112586")) + clean[3:]
 
     eesti_number = re.search(r"\d{3}[A-Z]{3}", clean)
     if eesti_number:
@@ -940,14 +952,14 @@ def kohalikud_muudatused():
 
 KOHALIKULT_LISATUD, KOHALIKULT_EEMALDATUD = kohalikud_muudatused()
 LUBATUD_ALGUSED = frozenset(
-    (BAAS_LUBATUD_ALGUSED | KOHALIKULT_LISATUD) - KOHALIKULT_EEMALDATUD
+    BAAS_LUBATUD_ALGUSED | KOHALIKULT_LISATUD
 )
 
 
 def on_lubatud(value):
     """Kontrolli vana täisnumbrit või uue loendi kolme esimest märki."""
     number = puhasta_number(value)
-    return bool(number) and number[:3] not in KOHALIKULT_EEMALDATUD and (
+    return bool(number) and (
         number in LUBATUD or number[:3] in LUBATUD_ALGUSED
     )
 
@@ -958,9 +970,7 @@ def kuva_loata_ajalugu(*, key, number="", event_id="", show=False):
         key=key,
         data={
             "allowed_numbers": sorted(
-                number
-                for number in LUBATUD
-                if number[:3] not in KOHALIKULT_EEMALDATUD
+                LUBATUD
             ),
             "allowed_prefixes": sorted(LUBATUD_ALGUSED),
             "denied_number": puhasta_number(number),
